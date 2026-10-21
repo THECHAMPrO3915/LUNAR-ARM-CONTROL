@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BLE Serial Terminal</title>
+<style>
+:root{color-scheme:dark;--bg:#111318;--panel:#1b1e26;--panel2:#232733;--line:#343a49;--text:#eef1f7;--muted:#a5adbd;--accent:#55c2a3;--danger:#ff737d;--blue:#83a9ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px;background:#171920;position:sticky;top:0;z-index:2}
+.brand{display:flex;gap:11px;align-items:center}.logo{width:38px;height:38px;border-radius:10px;background:var(--accent);color:#0d201b;display:grid;place-items:center;font-size:21px;font-weight:800}
+h1{font-size:17px;margin:0} .sub{font-size:12px;color:var(--muted)}.status{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px}.dot{width:8px;height:8px;border-radius:50%;background:#778092}.dot.on{background:var(--accent);box-shadow:0 0 9px #55c2a377}
+main{max-width:1000px;margin:0 auto;padding:18px;display:grid;gap:14px}.card{background:var(--panel);border:1px solid var(--line);border-radius:13px;overflow:hidden}.cardhead{padding:13px 15px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:10px;font-weight:650}.content{padding:15px}
+.row{display:flex;gap:9px;align-items:center;flex-wrap:wrap}button,select,input,textarea{font:inherit}button{border:1px solid var(--line);border-radius:8px;padding:9px 12px;background:var(--panel2);color:var(--text);cursor:pointer}button:hover{filter:brightness(1.12)}button:disabled{opacity:.45;cursor:not-allowed}.primary{background:var(--accent);color:#10211c;border-color:transparent;font-weight:700}.danger{color:var(--danger)}.small{padding:6px 9px;font-size:12px}
+label{font-size:12px;color:var(--muted);display:block;margin-bottom:5px}.field{min-width:125px;flex:1}select,input[type=text],textarea{width:100%;background:#12151b;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px;outline:none}select:focus,input:focus,textarea:focus{border-color:var(--accent)}
+#terminal{height:min(52vh,470px);min-height:270px;overflow:auto;background:#0d0f14;padding:12px;font:13px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+.line{display:flex;gap:9px}.time{color:#7d8799;flex-shrink:0}.rx{color:#b8e8d9}.tx{color:#a9c1ff}.sys{color:#d2b7ff}.err{color:#ff9ba2}.logtools{display:flex;gap:6px;flex-wrap:wrap}
+.sendrow{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:10px}.sendrow input{min-width:0}
+.options{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;color:var(--muted);font-size:12px}.options label{display:flex;align-items:center;gap:6px;margin:0}.options input{accent-color:var(--accent)}
+.notice{font-size:12px;color:var(--muted);line-height:1.55}.notice strong{color:var(--text)}footer{text-align:center;color:var(--muted);font-size:12px;padding:4px 0 18px}
+@media(max-width:600px){header{padding:12px}.sub{display:none}main{padding:10px}.content{padding:11px}.field{min-width:calc(50% - 8px)}#terminal{height:48vh}.cardhead{padding:11px}}
+</style>
+</head>
+<body>
+<header>
+ <div class="brand"><div class="logo">↔</div><div><h1>BLE Serial Terminal</h1><div class="sub">Browser-based Arduino terminal</div></div></div>
+ <div class="status"><span id="statusDot" class="dot"></span><span id="statusText">Disconnected</span></div>
+</header>
+<main>
+ <section class="card">
+  <div class="cardhead"><span>Connection</span><span class="sub">Bluetooth Low Energy</span></div>
+  <div class="content">
+   <div class="row">
+    <button id="connectBtn" class="primary">⌁ Connect Bluetooth</button>
+    <button id="disconnectBtn" disabled>Disconnect</button>
+    <div style="flex:1"></div><span class="sub" id="deviceName">No device selected</span>
+   </div>
+   <div class="notice" style="margin-top:12px">Uses the Nordic UART Service (NUS) BLE profile. Your Arduino firmware must advertise this service and its matching RX/TX characteristics.</div>
+  </div>
+ </section>
+ <section class="card">
+  <div class="cardhead"><span>Terminal</span><div class="logtools"><button id="pauseBtn" class="small">Pause view</button><button id="copyBtn" class="small">Copy log</button><button id="clearBtn" class="small">Clear</button></div></div>
+  <div id="terminal" role="log" aria-live="polite"><div class="line"><span class="time">—</span><span class="sys">Ready. Connect to a compatible BLE UART device to begin.</span></div></div>
+  <div class="content">
+   <label for="message">Send message</label>
+   <div class="sendrow"><input id="message" type="text" placeholder="Enter a command…" autocomplete="off"><button id="sendBtn" class="primary" disabled>Send ➤</button></div>
+   <div class="options">
+    <label><input type="checkbox" id="appendLF" checked> Append newline (LF)</label>
+    <label><input type="checkbox" id="appendCR"> Append carriage return (CR)</label>
+    <label><input type="checkbox" id="showTX" checked> Show sent messages</label>
+    <label><input type="checkbox" id="timestamps" checked> Timestamps</label>
+   </div>
+  </div>
+ </section>
+ <section class="card">
+  <div class="cardhead">Terminal settings</div>
+  <div class="content">
+   <div class="row">
+    <div class="field"><label for="lineEnding">Receive display</label><select id="lineEnding"><option value="newline">Split on new lines</option><option value="raw">Raw chunks</option></select></div>
+    <div class="field"><label for="encoding">Text encoding</label><select id="encoding"><option value="utf-8">UTF-8</option><option value="ascii">ASCII-compatible text</option></select></div>
+   </div>
+   <p class="notice" style="margin-bottom:0">For privacy, this page only requests a device when you press Connect. Bluetooth access requires a compatible browser (such as desktop Chrome or Edge) and a secure context, usually HTTPS or localhost.</p>
+  </div>
+ </section>
+</main>
+<footer>Independent BLE terminal demo · Not affiliated with Kai Morich</footer>
+<script>
+(() => {
+ const SERVICE='6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+ const RX='6e400002-b5a3-f393-e0a9-e50e24dcca9e'; // browser writes to device RX
+ const TX='6e400003-b5a3-f393-e0a9-e50e24dcca9e'; // browser receives device TX notifications
+ let device=null, server=null, txChar=null, rxChar=null, paused=false, decoder=new TextDecoder(), pending='';
+ const $=id=>document.getElementById(id);
+ const terminal=$('terminal');
+ function stamp(){return new Date().toLocaleTimeString();}
+ function log(text,type='sys'){
+   if(paused && type==='rx') return;
+   const line=document.createElement('div');line.className='line';
+   const time=document.createElement('span');time.className='time';time.textContent=$('timestamps').checked?stamp():'';
+   const msg=document.createElement('span');msg.className=type;msg.textContent=text;
+   line.append(time,msg);terminal.appendChild(line);terminal.scrollTop=terminal.scrollHeight;
+ }
+ function status(connected,name){
+   $('statusDot').classList.toggle('on',connected);
+   $('statusText').textContent=connected?'Connected':'Disconnected';
+   $('deviceName').textContent=name||'No device selected';
+   $('connectBtn').disabled=connected;$('disconnectBtn').disabled=!connected;$('sendBtn').disabled=!connected;
+ }
+ function onDisconnect(){log('Device disconnected.','err');device=null;server=null;txChar=null;rxChar=null;status(false);}
+ async function connect(){
+   if(!('bluetooth' in navigator)){log('Web Bluetooth is not available in this browser. Try desktop Chrome or Edge over HTTPS/localhost.','err');return;}
+   try{
+    log('Opening Bluetooth device picker…');
+    device=await navigator.bluetooth.requestDevice({filters:[{services:[SERVICE]}]});
+    device.addEventListener('gattserverdisconnected',onDisconnect);
+    log('Connecting to '+(device.name||'BLE device')+'…');
+    server=await device.gatt.connect();
+    const service=await server.getPrimaryService(SERVICE);
+    rxChar=await service.getCharacteristic(RX);
+    txChar=await service.getCharacteristic(TX);
+    await txChar.startNotifications();
+    txChar.addEventListener('characteristicvaluechanged',onData);
+    status(true,device.name||'BLE device');
+    log('Connected. Notifications enabled.','sys');
+   }catch(e){log((e.name||'Error')+': '+e.message,'err');if(device&&device.gatt&&device.gatt.connected)device.gatt.disconnect();else{device=null;status(false);}}
+ }
+ function onData(event){
+   const bytes=new Uint8Array(event.target.value.buffer,event.target.value.byteOffset,event.target.value.byteLength);
+   const text=decoder.decode(bytes,{stream:true});
+   if($('lineEnding').value==='raw'){if(text)log(text,'rx');return;}
+   pending+=text;
+   const parts=pending.split(/\r\n|\n|\r/);pending=parts.pop();
+   parts.forEach(part=>log(part,'rx'));
+   if(pending.length>4096){log(pending,'rx');pending='';}
+ }
+ async function send(){
+   if(!rxChar){log('Not connected.','err');return;}
+   let text=$('message').value;
+   if(!text.length)return;
+   if($('appendCR').checked)text+='\r';
+   if($('appendLF').checked)text+='\n';
+   try{
+    const bytes=new TextEncoder().encode(text);
+    if(rxChar.writeValueWithResponse) await rxChar.writeValueWithResponse(bytes);
+    else await rxChar.writeValue(bytes);
+    if($('showTX').checked)log(text.replace(/\r/g,'\\r').replace(/\n/g,'\\n'),'tx');
+    $('message').value='';
+   }catch(e){log('Send failed: '+e.message,'err');}
+ }
+ $('connectBtn').addEventListener('click',connect);
+ $('disconnectBtn').addEventListener('click',()=>{if(device&&device.gatt&&device.gatt.connected)device.gatt.disconnect();});
+ $('sendBtn').addEventListener('click',send);
+ $('message').addEventListener('keydown',e=>{if(e.key==='Enter')send();});
+ $('clearBtn').addEventListener('click',()=>{terminal.replaceChildren();pending='';});
+ $('pauseBtn').addEventListener('click',()=>{paused=!paused;$('pauseBtn').textContent=paused?'Resume view':'Pause view';if(!paused)log('Live view resumed.');});
+ $('copyBtn').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(terminal.innerText);log('Terminal log copied.');}catch(e){log('Clipboard access failed. Select and copy the log manually.','err');}});
+ status(false);
+})();
+</script>
+</body>
+</html>
